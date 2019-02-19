@@ -1,2 +1,12 @@
-#+title: Invoicing.el
+#+title: Invoicing.el - Emacs/Org-mode invoice toolkit
 
+TODO badges & stuffs go here.
+
+* In a nutshell
+  TBD
+
+* Basic Setup
+  TBD
+
+* Contributing
+  TBD
