@@ -22,6 +22,51 @@
 
 ;; TODO code in general
 
+;; config definitions -- TODO separate out to another file
+;; XXX ALSO SOME OF THOSE MAY BE PER COMPANY - WHAT IF USER WANTS TO HAVE MULTIPLE COMPANIES (e.g. their own company, and hackerspace they run)?
+(defgroup invoicing nil
+  "Settings for `invoicing'."
+  :tag "Invoicing"
+  :group 'org
+  :link '(url-link "https://github.com/TeMPOraL/invoicing.el"))
+
+;TODO could this be locally overridable per customer?
+;TODO a default value could be provided, relative to this library's folder.
+(defcustom invoicing-template-directory nil
+  "Path to a folder containing invoice templates.
+This path will be used as the root when looking up templates specified
+with relative paths."
+  :group 'invoicing
+  :type 'directory)
+
+;;; TODO could it be locally overridable per customer?
+(defcustom invoicing-archive-directory nil
+  "Path to a folder containing archived invoices.
+This folder should store invoices that have already finished
+their accounting life cycle. Contents of this folder are only
+listed in order to determine the next applicable invoice number."
+  :group 'invoicing
+  :type 'directory)
+
+;;; TODO could it be locally overridable per customer?
+(defcustom invoicing-staging-directory nil
+  "Path to a folder in which to store generated invoices.
+Invoices in this folder are yet to be sent to the customer,
+or yet to be sent to the accounting people."
+  :group 'invoicing
+  :type 'directory)
+
+(defcustom invoicing-add-recalc-column t
+  "Include a column with recalculation marks in line items table?
+Enabling this feature makes invoice line item table automatically
+recalculate all table formulas when values are edited, without
+needing to invoke recalculation manually."
+  :group 'invoicing
+  :type 'boolean)
+
+;;(defcustom invoicing-warning-)
+
+
 ;;; XXX DATA DEFINITIONS
 ;;; This is a local reference, not something that'll be part of final project code.
 ;;; Actually, it might be worth to define some of them as defcustom, and others as def-whatever datatypes are appropriate.
@@ -42,6 +87,54 @@
 ;;;   - Account number
 ;;;   - SWIFT (optional)
 ;;;   - Account currency override [default default]
+(define-widget 'invoicing-address 'lazy ;XXX why 'lazy works, and other stuff doesn't?
+  "TODO document"
+  :tag "Address"
+  :type '(repeat :tag nil (string :tag "Line"))) ;TODO Figure out a way to get rid of excess "Repeat:" in customize view.
+
+(defcustom invoicing-broken-widget '()
+  "Testing broken widget."
+  :group 'invoicing
+  :type 'invoicing-address)
+
+(define-widget 'invoicing-account 'alist
+  "TODO document"
+  :type '(alist :key-type symbol)
+  :tag "Bank account"
+  :options '((:shortcode string)
+             (:bank invoicing-address)
+             (:number string)
+             (:swift string)))
+
+(define-widget 'invoicing-seller 'alist
+  "Definition of a single invoicing identity.
+Here you can specify the data that goes into \"seller\" field
+on the invoice, as well as override some of the global invoicing
+settings."
+  ;; XXX need something to unbreak widget alignment in the UI!
+  :tag "Seller"
+  :type '(alist :key-type symbol)
+  :options '((:shortcode string)
+             (:full-name string)
+             (:address invoicing-address)
+             (:tax-id string)
+             (:accounts (repeat invoicing-account))))
+
+(defcustom invoicing-sellers '(((:shortcode . "TST1")
+                                (:full-name . "ASDF")
+                                (:address . ("Line1" "Line2" "Line3"))
+                                (:accounts . (((:shortcode . "ACC1")
+                                               (:bank . ("Line1.1" "Line1.2")))
+                                              ((:shortcode . "ACC2")
+                                               (:bank . ("Line2.1" "Line2.2")))))
+                                (:some-other-key . "asdf")))
+  "A list of identities used to invoice other parties.
+At least one is needed for Invoicing to operate.
+If you invoice in the name of multiple organizations,
+this is the place to specify each of them.
+TODO further documentation."
+  :group 'invoicing
+  :type '(repeat invoicing-seller))
 ;;;
 ;;; Customer configuration
 ;;; - Shortcode?
@@ -92,49 +185,6 @@
 ;;;
 ;;; Post processors for template generation?
 ;;; E.g. latexification of stuff, like \nth in addresses.
-
-
-;; config definitions -- TODO separate out to another file
-;; XXX ALSO SOME OF THOSE MAY BE PER COMPANY - WHAT IF USER WANTS TO HAVE MULTIPLE COMPANIES (e.g. their own company, and hackerspace they run)?
-(defgroup invoicing nil
-  "Settings for `invoicing'."
-  :tag "Invoicing"
-  :group 'org
-  :link '(url-link "https://github.com/TeMPOraL/invoicing.el"))
-
-;TODO could this be locally overridable per customer?
-;TODO a default value could be provided, relative to this library's folder.
-(defcustom invoicing-template-directory nil
-  "Path to a folder containing invoice templates.
-This path will be used as the root when looking up templates specified
-with relative paths."
-  :group 'invoicing
-  :type 'directory)
-
-;;; TODO could it be locally overridable per customer?
-(defcustom invoicing-archive-directory nil
-  "Path to a folder containing archived invoices.
-This folder should store invoices that have already finished
-their accounting life cycle. Contents of this folder are only
-listed in order to determine the next applicable invoice number."
-  :group 'invoicing
-  :type 'directory)
-
-;;; TODO could it be locally overridable per customer?
-(defcustom invoicing-staging-directory nil
-  "Path to a folder in which to store generated invoices.
-Invoices in this folder are yet to be sent to the customer,
-or yet to be sent to the accounting people."
-  :group 'invoicing
-  :type 'directory)
-
-(defcustom invoicing-add-recalc-column t
-  "Include a column with recalculation marks in line items table?
-Enabling this feature makes invoice line item table automatically
-recalculate all table formulas when values are edited, without
-needing to invoke recalculation manually."
-  :group 'invoicing
-  :type 'boolean)
 
 
 ;; taxinfo code -- TODO separate out to another file
@@ -189,7 +239,7 @@ needing to invoke recalculation manually."
   "Return an alist-getter for `KEY'.
 An alist-getter is a function that accepts an alist,
 and returns the value of `KEY'."
-  (-compose #'cdr (-partial #'assoc key)))
+  (-partial #'alist-get key))
 
 (cl-defstruct (invoicing-column-descriptor
                (:constructor nil)
