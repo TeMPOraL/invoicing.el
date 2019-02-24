@@ -2,11 +2,19 @@
 
 TODO badges & stuffs go here.
 
+TODO TOC?
+
 * In a nutshell
   TBD
+
+* Try it out
+  Describe initial example. TODO actually make initial example, M-x invoicing-demo.
 
 * Basic Setup
   TBD
 
+* Changelog
+
 * Contributing
   TBD
+  See [[DEVELOPMENT.org]].
