@@ -67,6 +67,29 @@ needing to invoke recalculation manually."
 ;;(defcustom invoicing-warning-)
 
 
+;;; XXX AROUND HOOK
+;;; Probably the simplest way to allow specific overrides would be to provide ability
+;;; to register one or more around hooks - a functions of form:
+;;; (lambda (next-function)
+;;;   ;; do :before stuff
+;;;   (funcall next-function)
+;;;   ;; do :after stuff
+;;; )
+;;; The idea here being to give the ability to change the dynamic environment around settings
+;;; and selections - e.g. rebind current customer, current seller, and possibly other settings,
+;;; based on whatever is selected. This way, we stuff as much configuration as possible into
+;;; the customer & seller definitions, and allow altering them in special cases.
+;;;
+;;; #emacs suggests going with explicit defvar if I expect 10% or more users to want to use it, for discoverability.
+
+;;; XXX DATA ORGANIZATION TO RETHINK
+;;; In context of both user-config and hook-overriding.
+;;; Should I start the generation process with "all data normalized"? I.e. any piece of information
+;;; needed by the process is in _one_ place?
+;;; That would need to have more in context than just current-customer and current-seller; hell, it'll
+;;; probably require flattening this into a single data block.
+
+
 ;;; XXX DATA DEFINITIONS
 ;;; This is a local reference, not something that'll be part of final project code.
 ;;; Actually, it might be worth to define some of them as defcustom, and others as def-whatever datatypes are appropriate.
@@ -90,12 +113,7 @@ needing to invoke recalculation manually."
 (define-widget 'invoicing-address 'lazy ;XXX why 'lazy works, and other stuff doesn't?
   "TODO document"
   :tag "Address"
-  :type '(repeat :tag nil (string :tag "Line"))) ;TODO Figure out a way to get rid of excess "Repeat:" in customize view.
-
-(defcustom invoicing-broken-widget '()
-  "Testing broken widget."
-  :group 'invoicing
-  :type 'invoicing-address)
+  :type '(repeat :tag "Address lines" (string :tag "Line"))) ;TODO Figure out a way to get rid of excess "Repeat:" in customize view.
 
 (define-widget 'invoicing-account 'alist
   "TODO document"
@@ -104,7 +122,18 @@ needing to invoke recalculation manually."
   :options '((:shortcode string)
              (:bank invoicing-address)
              (:number string)
+             (:currency string)         ;XXX what is the meaning of this?
              (:swift string)))
+
+(define-widget 'invoicing-tag 'alist
+  "TODO document"
+  :type '(alist :key-type symbol)
+  :options '((:tag string)
+             (:name string)
+             (:rate integer)
+             (:vat-rate (choice (number :tag "VAT percent rate") ;XXX display [%] instead of "percent rate"
+                                (string :tag "Special VAT type")
+                                (const :tag "No VAT applicable" nil)))))
 
 (define-widget 'invoicing-seller 'alist
   "Definition of a single invoicing identity.
@@ -115,10 +144,38 @@ settings."
   :tag "Seller"
   :type '(alist :key-type symbol)
   :options '((:shortcode string)
-             (:full-name string)
+             ((const :tag "A Full Name" :full-name) string) ;XXX Turns out :doc "documentation" works too, albeit with no indent :/.
              (:address invoicing-address)
              (:tax-id string)
+             (:language string)         ;"Home" language code. XXX string?
              (:accounts (repeat invoicing-account))))
+
+(define-widget 'invoicing-customer 'alist
+  "TODO Docstring"
+  :tag "Customer"
+  :type '(alist :key-type symbol)
+  :options '((:shortcode string)
+             (:full-name string)
+             (:language string)         ;"Remote" language code. XXX string?
+             (:currency string)         ;Currency to bill in.
+             (:agenda-paths (repeat directory))
+             (:address invoicing-address)
+             ;; TODO account selector - maybe a list of strings matching shortcodes? a currency-based selector? a function of (seller, customer) => account?
+             (:invoice-template file)   ;XXX file? maybe a string? or a choice between the two? should prefer relative paths!
+             (:tax-id string)
+             (:reverse-charge boolean)
+             (:payable-days integer)
+             (:block string)))
+
+(defcustom invoicing-broken-widget '()
+  "Testing broken widget."
+  :group 'invoicing
+  :type 'invoicing-address)
+
+;;; TODO figure out how to better document individual alist fields in customize!
+
+
+
 
 (defcustom invoicing-sellers '(((:shortcode . "TST1")
                                 (:full-name . "ASDF")
@@ -150,6 +207,13 @@ TODO further documentation."
 ;;; - Payable days [default default]
 ;;; - Block? [default default]
 ;;; - email maybe? for automated sending of invoices. That's probably beyond MVP though.
+
+
+
+(defcustom invoicing-customers '(((:shortcode . "CTST1")))
+  "TODO documentation"
+  :group 'invoicing
+  :type '(repeat invoicing-customer))
 ;;;
 ;;; Tags configuration - a map of tag name :: tag definition
 ;;; - Line item name
@@ -185,6 +249,113 @@ TODO further documentation."
 ;;;
 ;;; Post processors for template generation?
 ;;; E.g. latexification of stuff, like \nth in addresses.
+
+
+;;; General utils FIXME move to a different file
+
+(defun invoicing--agetter (key)
+  "Return an alist-getter for `KEY'.
+An alist-getter is a function that accepts an alist,
+and returns the value associated with `KEY'."
+  (-partial #'alist-get key))
+
+
+
+(defun invoicing--completing-read-by-shortcode (list &optional code prompt)
+  "Select entry from `LIST' (`SELLER' or `CUSTOMER') by shortcode.
+Use `CODE' as the default shortcode value.
+If specified, `PROMPT' will be used as prompt for completing read.
+Returns a whole element from the list, not just its shortcode."
+  (let ((codes (mapcar (invoicing--agetter :shortcode) list)))
+    (completing-read (or prompt "Shortcode: ") codes nil t nil nil code)))
+
+;;; OK, so here I'm trying to normalize the data needed to render a single invoice.
+;;; The shape of this suggests the following workflow.
+;;; 1. User selects customer + seller, this + global settings build the normalized data set.
+;;; 2. That normalized data set is then updated with data collected from Org Agenda and serialized (almost) wholesale into the Org document.
+;;;    (Except functions. Those aren't.)
+;;; 3. The new data structure is pulled from Org Mode document and transfered to Invoice Generator.
+(defun invoicing--collect-worksheet-context (seller-data customer-data account-data)
+  "TODO Normalized data, showing clearly what comes from where."
+  (let ((seller-currency (alist-get :currency account-data))
+        (customer-currency (alist-get :currency customer-data)))
+    `(
+      ;; --- Seller specific ---
+      (:seller-shortcode . ,(alist-get :shortcode seller-data))
+      (:seller-full-name . ,(alist-get :full-name seller-data))
+
+      (:seller-address . ,(alist-get :address seller-data))
+      (:seller-tax-id . ,(alist-get :tax-id seller-data))
+
+      ;;:language "???" ;"Home" language code. XXX string?
+
+      (:seller-account-shortcode . ,(alist-get :shortcode account-data))
+      (:seller-bank-address . ,(alist-get :bank account-data))
+      (:seller-account-number . ,(alist-get :number account-data))
+      (:seller-account-currency . ,seller-currency)
+      (:seller-account-swift-code . ,(alist-get :swift account-data))
+
+      ;; --- Customer specific ---
+      (:customer-shortcode . ,(alist-get :shortcode customer-data))
+      (:customer-full-name . ,(alist-get :full-name customer-data))
+      ;;(:language . "??")         ;"Remote" language code. XXX string?
+      (:customer-currency . ,customer-currency)
+      ;;(:agenda-paths (repeat directory))
+      (:customer-address . ,(alist-get :address customer-data))
+      ;;(:invoice-template file)   ;XXX file? maybe a string? or a choice between the two? should prefer relative paths!
+      (:customer-tax-id . ,(alist-get :tax-id customer-data))
+
+      ;; --- For tag-based summing
+      ;; -- stuff below gets replaced by org mode table --
+      (:tags . (((:tag "Tag1")
+                 (:name  "Line item description")
+                 (:rate 42)
+                 (:hours nil) ;Hours will be appended by the Org collection process.
+                 ;; Also other data may show up here, if column generators create it.
+                 )
+                ((:tag "Tag2")
+                 (:name "Line item description 2")
+                 (:rate 12)
+                 (:hours nil))))
+
+      ;;XXX introduce columns-by-shortcode fetching
+      ;;(:columns . ,(invoicing--compute-line-item-table-columns nil))
+      ;; -- end of stuff that gets replaced by org mode table --
+
+      (:currency-conversion . ,(unless (eql seller-currency customer-currency)
+                                 (invoicing--get-currency-conversion-rate seller-currency customer-currency)))
+
+      ;; --- Customer&Seller ---
+      (:payable-days . 14)
+      (:reverse-charge . t)
+      (:block . ,(or (alist-get :block customer-data) (alist-get :block seller-data) 'lastmonth)) ;XXX also default block?
+
+      (:agenda-paths . ,(or (alist-get :agenda-paths customer-data) (alist-get :agenda-paths seller-data))) ;XXX also default agenda-paths?
+      ;; XXX also use global default paths for both?
+      (:invoice-template . ,(let* ((template-basedir (or (alist-get :template-basedir customer-data) (alist-get :template-basedir seller-data)))
+                                   (template-filename (or (alist-get :template-file customer-data) (alist-get :template-file seller-data) "FIXME invoicing.el-default filename")))
+                              (if (file-name-absolute-p template-filename)
+                                  filename
+                                (expand-file-name template-filename template-basedir))))
+      (:generating-engine . :LaTeX)     ;XXX a function maybe?
+
+      ;; --- Other ---
+      (:invoice-number . "TODO Invoice Number")
+      (:issue-date . "TODO date")
+      (:sale-date . "TODO date")
+      (:period . "TODO date")
+
+      ;; --- Mechanics ---
+
+      ;; XXX see if current org clocksum algo doesn't already account for it
+      (:warn-on-multiple-tags .  t) ; if we have more than one of the counted tags in effect on a headline (possibly via inheritance)
+      (:warn-on-other-tags .  t)
+      (:warn-on-unclassified-time . t)
+      (:include-unclassified-time . t)
+      (:include-summary-by-headline . t)
+      (:include-copy-of-line-items . t)
+      (:include-help-text . t)
+      )))
 
 
 ;; taxinfo code -- TODO separate out to another file
@@ -226,20 +397,50 @@ TODO further documentation."
 )
 
 
-;; workbook generator code -- TODO separate out to another file
+;; worksheet generator code -- TODO separate out to another file
+
+(defun invoicing--find-by-shortcode (value seq)
+  "Find item in `SEQ' with shortcode `VALUE'."
+  (cl-find value seq :key (invoicing--agetter :shortcode) :test #'equalp))
 
 ;;; Context variables.
-(defvar invoicing-current-company nil
-  "TODO")
+(defvar-local invoicing-worksheet-context nil
+  "Context for currently open worksheet.
+This variable stores an alist completely describing an invoice for purposes of
+generating a worksheet. Code for interactive tables will refer to this variable
+for all necessary metadata.")
 
-(defvar invoicing-current-customer nil
-  "TODO")
+(defun invoicing--ensure-worksheet-context (&optional seller customer account force force-ask)
+  "Ensure proper context exists for current worksheet.
+Ensures `INVOICING-WORKSHEET-CONTEXT' contains full set of data
+required by the worksheet. If `INVOICING-WORKSHEET-CONTEXT' is empty,
+user will be prompted to specify seller, customer and account combination to
+generate data anew. `SELLER', `CUSTOMER' and `ACCOUNT' values can be provided
+as defaults. If `FORCE' is not nil, context will be regenerated even
+if it already exists. If `FORCE-ASK' is T, the user will be prompted
+for new values even if `SELLER', `CUSTOMER' and `ACCOUNT' are given."
+  (cl-flet ((ensure-item (list default-code name)
+                         (let ((code (or (and default-code (not force-ask))
+                                         (invoicing--completing-read-by-shortcode list default-code (format "%s: " (capitalize name))))))
+                           (or (invoicing--find-by-shortcode code list)
+                               (error "Invoicing: invalid or unspecified %s" name)))))
+    (when (or (null invoicing-worksheet-context)
+              force)
+      (let* ((seller-data (ensure-item invoicing-sellers seller "seller"))
+             (customer-data (ensure-item invoicing-customers customer "customer"))
+             (seller-accounts (alist-get :accounts seller-data)) ;TODO maybe also support "global" invoicing-accounts?
+             (account-data (ensure-item seller-accounts account "account")))
+        (message (buffer-name (current-buffer))) ;XXX debug
+        (setf invoicing-worksheet-context
+              (invoicing--collect-worksheet-context seller-data customer-data account-data)))))
+  (values))
 
-(defun invoicing--agetter (key)
-  "Return an alist-getter for `KEY'.
-An alist-getter is a function that accepts an alist,
-and returns the value of `KEY'."
-  (-partial #'alist-get key))
+(defun invoicing--get-in-context (key &optional default nil-as-missing)
+  "Get value associated with `KEY' in `INVOICING--GET-IN-CONTEXT'.
+Accepts `DEFAULT' if value is not found. Unlike `ALIST-GET', it treats
+`NIL' value for an existing key as missing value."
+  (or (alist-get key invoicing-worksheet-context default)
+      default))
 
 (cl-defstruct (invoicing-column-descriptor
                (:constructor nil)
@@ -258,7 +459,7 @@ Slots:
   (value-generator (error "Value generator not specified") :read-only t)
   (tblfm-generator (error "TBLFM generator not specified") :read-only t))
 
-(defvar invoicing-additional-columns nil) ;TODO also probably should be defcustom
+(defvar invoicing-additional-columns nil) ;TODO also probably should be defcustom, and/or overridable at customer or seller-level.
 
 (defun invoicing--compute-line-item-table-columns (params) ;XXX maybe get rid of the params argument?
   "TODO document"
@@ -322,12 +523,15 @@ TODO document `PARAMS' or refer to dblock fun."
             (s-join "|" row)
             "|\n")))
 
-(defun org-dblock-write:invoice-items (params)
+(defun org-dblock-write:invoicing-items (params)
   "Generate an org mode table with invoice line items.
 TODO document `PARAMS'.
 This invokes the search through appropriate org mode agenda files
 and collects sums of time spent, and other data necessary to generate
 he table."
+  ;; Ensure we have context ready.
+  (invoicing--ensure-worksheet-context (plist-get params :seller) (plist-get params :customer))
+
   ;; Headline
   (when (plist-get params :name)
     (insert (format "#+NAME: %s\n" (plist-get params :name))))
@@ -350,8 +554,26 @@ he table."
     ;; TODO force recalculate
     (dolist (warning warnings)
       (insert "# Warning: " warning "\n"))
+    ;; TODO !!! ALSO OUTPUT TAGS NOT USED / WITH 0 TOTAL TIME, out of those explicitly requested.
 
     (values)))
+
+
+;;; Other dblocks - TODO move elsewhere
+(defun org-dblock-write:invoicing-headline-summary (params)
+  "TODO"
+  ;; TODO
+  (insert "TODO invoicing headline summary"))
+
+(defun org-dblock-write:invoicing-data (params)
+  "TODO"
+  ;; TODO
+  (insert "TODO invoicing data"))
+
+(defun org-dblock-write:invoicing-items-copy (params)
+  "TODO"
+  ;; TODO copy the invoicing-items table
+  (insert "TODO invoicing items copy"))
 
 
 ;; template code -- TODO separate out to another file
@@ -363,23 +585,49 @@ he table."
 This is the entry point to invoicing process. The worksheet
 created in temporary buffer allows user to inspect and adjust all
 data that will go to the final invoice. Generating the final
-invoice file is triggered from within the workbook by (TODO
+invoice file is triggered from within the worksheet by (TODO
 evaluating relevant code)."
+  (interactive)
+  ;; FIXME pull in block from somewhere too?
+  ;;       Right now, changing block will require updates in _at least_ two places.
+  (let ((buffer (generate-new-buffer "TODO-name-invoice.org")))
+    (with-current-buffer buffer
+      (org-mode)
 
-  ;; TODO function params: customer, time block.
-  ;; Customer needs to resolve to customer metadata, I think.
+      (invoicing--ensure-worksheet-context nil nil nil t t)
 
-  ;; Will become buffer-local variables, I think.
-  ;; OR MAYBE NOT, as it might interfere with agenda collection process!
-  ;; Note we want to achieve two things here:
-  ;; - have it set to correct values when interacting with Worksheet
-  ;; - have it not hang around forever and possibly interfere with other Worksheets
-  ;; Possible solution: have buffer-local variable and a normal variable that's automatically
-  ;; set to the value of buffer-local variable whenever invoicing operations are happening.
+      (insert "#+TITLE: Invoice TODO number\n\n")
 
-  ;; TODO Create worksheet buffer.
+      (insert "* Line items table\n"
+              (if (invoicing--get-in-context :include-help-text)
+                  "Here you can review and correct all line items as generated through scanning your Org Agenda.\n\n"
+                "\n"))
 
-  )
+      (insert "#+BEGIN: invoicing-items\n" ;TODO params
+              "#+END:\n\n")
+
+      (when (invoicing--get-in-context :include-copy-of-line-items)
+        (insert (if (invoicing--get-in-context :include-help-text)
+                    "A copy of the table above has been included for your convenience. *This* copy will be taken into account by final invoice generation process.\n\n"
+                  "\n")
+                "#+BEGIN: invoicing-items-copy\n"
+                "#+END:\n\n"))
+
+      (when (invoicing--get-in-context :include-summary-by-headline)
+        (insert "* Summary of clocked tasks\n\n"
+                "#+BEGIN: invoicing-headline-summary\n" ;TODO params
+                "#+END:\n\n"))
+
+      (insert "* Invoice data\n"
+              (if (invoicing--get-in-context :include-help-text)
+                  "Here are all the remaining values used to generate your invoice. You can review and modify them.\n\n"
+                "\n")
+              "#+BEGIN: invoicing-data\n"
+              "#+END:")
+
+      ;; TODO org-indent-region on whole buffer.
+      (org-update-all-dblocks))
+    (switch-to-buffer buffer)))
 
 
 (provide 'invoicing)
