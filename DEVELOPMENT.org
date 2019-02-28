@@ -1,6 +1,121 @@
 #+title: Invoicing.el - Development Notes
 
 * Scope
+  The goal of this project is to enable convenient generation of correct US and EU VAT invoices from Org Mode Agenda time tracking data.
+  Software should support invoicing both domestic and foreign customers, handling bilingual invoices and currency conversions for VAT.
+  Should support accounting for all appropriate taxes, either through built-in code or user extensions. Should allow users to disable
+  LaTeX generation part, and substitute it with custom code.
+
+  Extended scope: /Might/ support invoices for goods/services billed in units other than time (hours). /Should/ support sending invoice
+  data to third-party software / service, e.g. for people using SaaS tools for managing invoices. /Might/ support pulling in customer
+  data from such tools. /Probably will/ support other ways of generating line items than Org Mode Agenda tags.
+
+  Non-goals: Will not force any particular time tracking workflow beyond (in primary basic scope) tagging appropriate headlines.
+  Will not, by itself, handle managing invoices - this will be left for users to plug in via hooks in appropriate places.
 
 * Remarks
 
+* Todo List / Roadmap
+  Ongoing list of things left to be done.
+
+** TODO Structural
+
+*** TODO Separate code into multiple files
+
+*** TODO Ensure correct dependency declarations
+
+*** TODO Ensure correct comment headers in all files
+
+*** TODO Ensure correct autoloads
+
+** TODO User-facing configuration
+
+** TODO Precalculation
+
+*** TODO Correctly selecting whether or not VAT columns should be included
+    Which is, possibly, always?
+
+*** TODO Correctly adding remarks
+    - [ ] reverse charge
+    - [ ] ... are there any others?
+
+*** TODO Correctly determining whether currency conversion for VAT is necessary
+
+*** TODO Fetching correct currency conversion rate
+    - [ ] Configurable infrastructure for using remote APIs, probably keyed by seller home currency
+    - [ ] Hooking up to at least one such service by default (might not be included in final release)
+
+*** TODO Handling more complex time blocks
+    - [ ] Handling org-mode keyworded time blocks (e.g. =thismonth=, =lastmonth=)
+    - [ ] Handling blocks defined as "last N days", "last N weeks"
+    - [ ] Handling blocks defined by explicit dates
+
+** TODO Line items table
+
+*** TODO Correct currency tags included in column titles
+
+*** TODO Correct TBLFMs for line items and total
+    - [ ] Line items
+    - [ ] Total
+
+*** TODO Tax subtotals
+    - [ ] Line items
+    - [ ] TBLFMs automatically computing correct values
+
+*** TODO Optimized, single-pass computation
+    Current implementation does multiple passes over a single file.
+
+** TODO Reference clocktable
+   I.e. one to review headlines contributing to time. Essentially passthrough to org clocktable.
+   Need to automatically pull correct time block (possibly from #+CONSTANTS: declaration?)
+
+** TODO Metadata table
+
+*** TODO Collecting data for the table
+
+**** TODO Block synchronized to adjustments in org mode file
+
+**** TODO Number to Text generation
+     Might require or even include =spell-number.el= for most languages, but for Polish we need our own solution
+
+*** TODO Translations
+    Might show up. Not 100% sure yet.
+
+*** TODO Printing the table
+
+** TODO Generating PDF invoice
+
+*** TODO Pulling back the line items table
+
+*** TODO Reading back the metadata table
+
+** TODO Example LaTeX templates
+
+** TODO Post-processing
+
+*** TODO Moving generated invoice PDF to configured location
+
+** TODO Documentation
+
+*** TODO Everything that can have a docstring has a correct docstring
+
+*** TODO Everything in defcustom is thoroughly documented
+
+*** TODO Comment blocks have full documentation
+    Including a full package synopsis and use documentation in the main file.
+
+*** TODO Info page
+
+*** TODO Some kind of automation for syncing README.org, Info page and code comments
+
+** TODO Testing
+
+*** TODO Testing collecting line items across multiple Agenda files
+
+*** TODO Testing for TBLFMs generating correct sums
+
+*** TODO Testing for appropriate taxation columns being inferred and added, based on line item data
+
+*** TODO Testing correct generation of invoice numbers
+
+*** TODO Testing correct resolving of time blocks
