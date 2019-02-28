@@ -56,13 +56,6 @@ or yet to be sent to the accounting people."
   :group 'invoicing
   :type 'directory)
 
-(defcustom invoicing-add-recalc-column t
-  "Include a column with recalculation marks in line items table?
-Enabling this feature makes invoice line item table automatically
-recalculate all table formulas when values are edited, without
-needing to invoke recalculation manually."
-  :group 'invoicing
-  :type 'boolean)
 
 ;;(defcustom invoicing-warning-)
 
@@ -162,6 +155,7 @@ settings."
              (:address invoicing-address)
              ;; TODO account selector - maybe a list of strings matching shortcodes? a currency-based selector? a function of (seller, customer) => account?
              (:invoice-template file)   ;XXX file? maybe a string? or a choice between the two? should prefer relative paths!
+             (:tags (repeat invoicing-tag))
              (:tax-id string)
              (:reverse-charge boolean)
              (:payable-days integer)
@@ -210,7 +204,16 @@ TODO further documentation."
 
 
 
-(defcustom invoicing-customers '(((:shortcode . "CTST1")))
+(defcustom invoicing-customers '(((:shortcode . "CTST1")
+                                  (:agenda-paths . ("/home/temporal/repos/invoicing.el/test"))
+                                  (:tags . (((:tag . "test_one")
+                                             (:name . "Test tag 1")
+                                             (:rate . 42)
+                                             (:vat-rate . 23))
+                                            ((:tag . "test_three")
+                                             (:name . "Test tag 3")
+                                             (:rate . 12)
+                                             (:vat-rate . 18))))))
   "TODO documentation"
   :group 'invoicing
   :type '(repeat invoicing-customer))
@@ -307,16 +310,18 @@ Returns a whole element from the list, not just its shortcode."
 
       ;; --- For tag-based summing
       ;; -- stuff below gets replaced by org mode table --
-      (:tags . (((:tag "Tag1")
-                 (:name  "Line item description")
-                 (:rate 42)
-                 (:hours nil) ;Hours will be appended by the Org collection process.
-                 ;; Also other data may show up here, if column generators create it.
-                 )
-                ((:tag "Tag2")
-                 (:name "Line item description 2")
-                 (:rate 12)
-                 (:hours nil))))
+      (:tags . ,(alist-get :tags customer-data)) ;TODO merge with seller and default setup
+
+      ;; (:tags . (((:tag "Tag1")
+      ;;            (:name  "Line item description")
+      ;;            (:rate 42)
+      ;;            (:hours nil) ;Hours will be appended by the Org collection process.
+      ;;            ;; Also other data may show up here, if column generators create it.
+      ;;            )
+      ;;           ((:tag "Tag2")
+      ;;            (:name "Line item description 2")
+      ;;            (:rate 12)
+      ;;            (:hours nil))))
 
       ;;XXX introduce columns-by-shortcode fetching
       ;;(:columns . ,(invoicing--compute-line-item-table-columns nil))
@@ -340,10 +345,10 @@ Returns a whole element from the list, not just its shortcode."
       (:generating-engine . :LaTeX)     ;XXX a function maybe?
 
       ;; --- Other ---
-      (:invoice-number . "TODO Invoice Number")
-      (:issue-date . "TODO date")
-      (:sale-date . "TODO date")
-      (:period . "TODO date")
+      ;;(:invoice-number . "TODO Invoice Number") -- XXX remove, will be generated in metadata block
+      ;;(:issue-date . "TODO date") -- XXX remove, will be generated in metadata block
+      ;;(:sale-date . "TODO date") -- XXX remove, will be generated in metadata block
+      ;;(:period . "TODO date") -- XXX remove, will be generated in metadata block
 
       ;; --- Mechanics ---
 
@@ -461,15 +466,24 @@ Slots:
 
 (defvar invoicing-additional-columns nil) ;TODO also probably should be defcustom, and/or overridable at customer or seller-level.
 
+;;; NOTE XXX Simplifying tablegen
+;;; We assume three groups always exist (but may be empty):
+;;; @I..@II - line items
+;;; @II..@III - VAT subtotals
+;;; @> - Total
+;;; We also always include recalc column. The primary parametrization comes from currencies in column labels, and optional inclusion of VAT columns.
+;;; NOTE XXX Extra simplification: we'll drop subtotals for the time being, as I can't figure out TBLFMs that would be robust under editing
+;;; (one apparently cannot use hline-relative references as lvalues)
+;;; NOTE maybe we can hack it with https://emacs.stackexchange.com/questions/15185/cant-assign-to-hline-relative-reference, but it won't look pretty
+
 (defun invoicing--compute-line-item-table-columns (params) ;XXX maybe get rid of the params argument?
   "TODO document"
-  `(,@(when invoicing-add-recalc-column
-        (list (invoicing-make-column-descriptor " " " " (-const "#") (-const nil))))
-    ;; TODO if possible, move that to defcustommable variable?
+  `(;; TODO if possible, move that to defcustommable variable?
     ,@(mapcar (-partial #'apply #'invoicing-make-column-descriptor)
-              `(("Tag" "Tag" ,(invoicing--agetter :tag) ,(-const nil))
+              `((" " " " ,(-const "#") ,(-const nil))
+                ("Tag" "Tag" ,(invoicing--agetter :tag) ,(-const nil))
                 ("Line item name" "LineItem" ,(invoicing--agetter :name) ,(-const nil))
-                ("Hours" "Hours" ,(-compose (-partial #'format "%12.6g") (invoicing--agetter :hours)) ,(-const `("TODO tblfm for total Hours")))
+                ("Hours" "Hours" ,(-compose (-partial #'format "%12.6g") (-rpartial #'/ 60.0) (invoicing--agetter :time)) ,(-const `("TODO tblfm for total Hours")))
                 ;; TODO format currency - potentially extensible!
                 ("Rate" "Rate" ,(invoicing--agetter :rate) ,(-const `("TODO tblfm for total Rate")))
                 ("Net" "Net" ,(-const nil) ,(-const `("TODO tblfm for row Net" "TODO tblfm for total Net")))))
@@ -480,47 +494,85 @@ Slots:
   "Actual computations for line item table.
 TODO documentation
 TODO document `PARAMS' or refer to dblock fun."
-  (let* ((columns (invoicing--compute-line-item-table-columns params))
+  (let* ((org-agenda-files (invoicing--get-in-context :agenda-paths))
+         (columns (invoicing--compute-line-item-table-columns params))
          (headers (mapcar #'invoicing-column-descriptor-name columns))
          (tblfms (-mapcat (-compose (-rpartial #'funcall columns) #'invoicing-column-descriptor-tblfm-generator) columns))
-         ;; TODO 1. collect data
-         ;; TODO run sums here
-         ;; NOTE also collect warnings and "other tags"
-         (sums '(((:tag . "tag1")
-                  (:name . "Foo")
-                  (:rate . "Rate1")
-                  (:hours . "Hours1"))
-                 ((:tag . "tag2")
-                  (:name . "Bar")
-                  (:rate . "Rate2")
-                  (:hours . "Hours2"))))
-         (warnings '("FooWarn" "BarWarn" "BazWarn"))
+         (selected-tags (invoicing--get-in-context :tags))
+         (all-tags-in-files)            ;TODO collect them all
+         (total-time-in-files 0)        ;TODO collect it
+         (block 'thismonth) ;FIXME this needs to be in customer / seller / global defaults! and possibly queried!
+         (sums)
+         (warnings)
+         (unclassified-time))
 
-         ;; Assemble the table
-         ;; TODO 2b. consider using ! and ^
-         ;; TODO 2c. consider using $ for currency conversion rate
-         ;; Constant items: # column, Tag, Line item name, hours, rate, net, [], total
-         ;; Poland-relevant items: VAT %, VAT amount USD (if foreign), VAT amount PLN
+    ;; Collect total time in files, and all used tags.
+    (dolist (file (org-agenda-files))
+      (with-current-buffer (find-file-noselect file)
+        ;; FIXME inefficient; we do N+2 scans of each agenda file; we could likely collect all this data manually in a single scan.
+        (setf all-tags-in-files (append all-tags-in-files (mapcar #'car (org-get-buffer-tags))))
+        (incf total-time-in-files (nth 1 (org-clock-get-table-data (buffer-name) `(:block ,block))))
+        ;; TODO make it also count time for _other_ tags, in order to warn only on other tags that have time assigned to them.
+        (dolist (tag-entry selected-tags)
+          ;; XXX !!! FIXME THIS WILL GENERATE DUPLICATE TAGS, ONE SET FOR EACH FILE!!!
+          (push (append tag-entry `((:time . ,(nth 1 (org-clock-get-table-data (buffer-name) `(:tags ,(alist-get :tag tag-entry) :block ,block))))))
+                sums))))
 
-         (table `(,headers
-                  hline
-                  ,@(mapcar (lambda (sum)
-                              (mapcar (-compose (-rpartial #'funcall sum) #'invoicing-column-descriptor-value-generator)
-                                      columns))
-                            sums)
-                  ;; TODO subtotals
-                  hline
-                  (,@(when invoicing-add-recalc-column
-                       (list "#"))
-                   "Totals"))))
-    (cl-values table tblfms warnings)))
+    (setf all-tags-in-files (cl-remove-duplicates all-tags-in-files :test #'equalp))
+
+    (let ((total-time-in-tags (reduce (-compose #'+ (invoicing--agetter :time)) sums)))
+      (unless (= total-time-in-tags total-time-in-files)
+        (setf unclassified-time (- total-time-in-files total-time-in-tags))))
+
+    ;; Warning for unclassified time
+    (when (and (invoicing--get-in-context :warn-on-unclassified-time)
+               unclassified-time)
+      (push (format "Found %d minutes of unclassified time." unclassified-time) warnings))
+
+    ;; Warning for extra tags
+    (let ((other-tags (cl-set-difference all-tags-in-files (mapcar (invoicing--agetter :tag) selected-tags) :test #'equalp)))
+      (when (and (invoicing--get-in-context :warn-on-other-tags)
+                 other-tags)
+        (push (format "Found following tags that were not accounted for: %s." (s-join ", " other-tags)) warnings)))
+
+    ;; Warning on multiple tags accounting for the same headline (TODO, also check if org-mode doesn't resolve this automagically)
+
+    ;; Generate org-mode table
+    ;; NOTE: ensure you include:
+    ;; Constant items: # column, Tag, Line item name, hours, rate, net, [], total
+    ;; Poland-relevant items: VAT %, VAT amount USD (if foreign), VAT amount PLN
+
+    (let* ((table `(,headers
+                    ;; TODO consider using ! and/or ^ here
+                    hline
+                    ;; List line items
+                    ,@(mapcar (lambda (sum)
+                                (mapcar (-compose (-rpartial #'funcall sum) #'invoicing-column-descriptor-value-generator)
+                                        columns))
+                              sums)
+                    ;; List unallocated time
+                    ,@(when (and unclassified-time (invoicing--get-in-context :include-unclassified-time))
+                        (list (mapcar (-compose (-rpartial #'funcall `((:tag . "") (:name . "Other") (:time . ,unclassified-time))) #'invoicing-column-descriptor-value-generator)
+                                      columns)))
+                    hline
+                    ;; TODO subtotals
+                    hline
+                    ,(list "#" "Totals")
+                    ;; TODO currency conversion, if applicable; use $ if recalc row enabled
+                    ;; Alternatively, #+CONSTANTS: might also work.
+                    )))
+      (cl-values table tblfms warnings))))
 
 (defun invoicing--print-org-table-row (row)
   "Print `ROW' as a single line of org mode table."
   (if (eq row 'hline)
       (insert "|-\n")
     (insert "| "
-            (s-join "|" row)
+            (s-join "|" (mapcar (lambda (el)
+                                  (cond ((null el) "")
+                                        ((stringp el) el)
+                                        (t (format "%s" el))))
+                                row))
             "|\n")))
 
 (defun org-dblock-write:invoicing-items (params)
@@ -562,17 +614,17 @@ he table."
 ;;; Other dblocks - TODO move elsewhere
 (defun org-dblock-write:invoicing-headline-summary (params)
   "TODO"
-  ;; TODO
+  ;; TODO pawn the work off to clocktable, setting appropriate params
   (insert "TODO invoicing headline summary"))
 
 (defun org-dblock-write:invoicing-data (params)
   "TODO"
-  ;; TODO
+  ;; TODO use context to compute keys & values for the final table, then render it
   (insert "TODO invoicing data"))
 
 (defun org-dblock-write:invoicing-items-copy (params)
   "TODO"
-  ;; TODO copy the invoicing-items table
+  ;; TODO just copy the invoicing-items table
   (insert "TODO invoicing items copy"))
 
 
@@ -598,6 +650,7 @@ evaluating relevant code)."
 
       (insert "#+TITLE: Invoice TODO number\n\n")
 
+      ;; Insert all workbook data
       (insert "* Line items table\n"
               (if (invoicing--get-in-context :include-help-text)
                   "Here you can review and correct all line items as generated through scanning your Org Agenda.\n\n"
@@ -625,8 +678,12 @@ evaluating relevant code)."
               "#+BEGIN: invoicing-data\n"
               "#+END:")
 
-      ;; TODO org-indent-region on whole buffer.
-      (org-update-all-dblocks))
+      ;; Execute dynamic blocks to fetch all data
+      (org-update-all-dblocks)
+
+      ;; Reindent for nicer look
+      (org-indent-region (point-min) (point-max)))
+
     (switch-to-buffer buffer)))
 
 
