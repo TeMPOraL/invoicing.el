@@ -20,102 +20,123 @@
 
 ** TODO Structural
 
-*** TODO Separate code into multiple files
+*** TODO Separate code into multiple files                            :alpha:
 
-*** TODO Ensure correct dependency declarations
+*** TODO Ensure correct dependency declarations                       :alpha:
 
-*** TODO Ensure correct comment headers in all files
+*** TODO Ensure correct comment headers in all files                  :alpha:
 
-*** TODO Ensure correct autoloads
+*** TODO Ensure correct autoloads                                     :alpha:
 
 ** TODO User-facing configuration
 
+*** TODO [#A] Determine subtasks                                      :alpha:
+
 ** TODO Precalculation
 
-*** TODO Correctly selecting whether or not VAT columns should be included
-    Which is, possibly, always?
+*** TODO Correctly selecting whether or not VAT columns should be included :alpha:
+    Which is, possibly, always? But configurable.
 
-*** TODO Correctly adding remarks
+*** TODO Correctly adding remarks                                     :alpha:
     - [ ] reverse charge
     - [ ] ... are there any others?
 
-*** TODO Correctly determining whether currency conversion for VAT is necessary
+*** TODO Correctly determining whether currency conversion for VAT is necessary :alpha:
 
-*** TODO Fetching correct currency conversion rate
+*** TODO Fetching correct currency conversion rate                     :beta:
     - [ ] Configurable infrastructure for using remote APIs, probably keyed by seller home currency
     - [ ] Hooking up to at least one such service by default (might not be included in final release)
 
-*** TODO Handling more complex time blocks
+*** TODO Handling more complex time blocks                            :alpha:
     - [ ] Handling org-mode keyworded time blocks (e.g. =thismonth=, =lastmonth=)
     - [ ] Handling blocks defined as "last N days", "last N weeks"
     - [ ] Handling blocks defined by explicit dates
 
 ** TODO Line items table
 
-*** TODO Correct currency tags included in column titles
+*** TODO Correct currency tags included in column titles              :alpha:
 
-*** TODO Correct TBLFMs for line items and total
+*** TODO Correct TBLFMs for line items and total                      :alpha:
     - [ ] Line items
     - [ ] Total
 
-*** TODO Tax subtotals
+*** TODO Tax subtotals                                                 :beta:
     - [ ] Line items
     - [ ] TBLFMs automatically computing correct values
 
-*** TODO Optimized, single-pass computation
+*** TODO Optimized, single-pass computation                            :beta:
     Current implementation does multiple passes over a single file.
+
+*** TODO Progress indicator                                            :beta:
+    This operation may take some time with large files and lots of tags, especially in its unoptimized form.
 
 ** TODO Reference clocktable
    I.e. one to review headlines contributing to time. Essentially passthrough to org clocktable.
    Need to automatically pull correct time block (possibly from #+CONSTANTS: declaration?)
 
+*** TODO Actual implementation (copy/paste)
+
+*** TODO Progress indicator                                            :beta:
+    This operation might take noticeable time with lots of files.
+
 ** TODO Metadata table
 
-*** TODO Collecting data for the table
+*** TODO Collecting data for the table                                :alpha:
 
-**** TODO Block synchronized to adjustments in org mode file
+**** TODO Block synchronized to adjustments in org mode file          :alpha:
 
-**** TODO Number to Text generation
-     Might require or even include =spell-number.el= for most languages, but for Polish we need our own solution
+**** TODO Number to Text generation                                   :alpha:
+     Might require or even include =spell-number.el= for most languages, but for Polish we need our own solution.
+     Needs to pull the total from line items table.
 
-*** TODO Translations
+*** TODO Translations                                                 :alpha:
     Might show up. Not 100% sure yet.
 
-*** TODO Printing the table
+*** TODO Printing the table                                           :alpha:
 
 ** TODO Generating PDF invoice
 
-*** TODO Pulling back the line items table
+*** TODO Pulling back the line items table                            :alpha:
 
-*** TODO Reading back the metadata table
+*** TODO Reading back the metadata table                              :alpha:
 
-** TODO Example LaTeX templates
+*** TODO Proper escaping and entity conversions on export             :alpha:
+    Maaaybe we could piggyback on Org's LaTeX exporter here?
+    We definitely want to handle stuff like 15th -> \nth{15} though.
+
+** TODO Example LaTeX templates                                        :beta:
 
 ** TODO Post-processing
 
-*** TODO Moving generated invoice PDF to configured location
+*** TODO Moving generated invoice PDF to configured location          :alpha:
 
 ** TODO Documentation
 
-*** TODO Everything that can have a docstring has a correct docstring
+*** TODO Everything that can have a docstring has a correct docstring :alpha:
 
-*** TODO Everything in defcustom is thoroughly documented
+*** TODO Everything in defcustom is thoroughly documented             :alpha:
 
-*** TODO Comment blocks have full documentation
+*** TODO Comment blocks have full documentation                       :alpha:
     Including a full package synopsis and use documentation in the main file.
 
-*** TODO Info page
+*** TODO Info page                                                     :beta:
 
-*** TODO Some kind of automation for syncing README.org, Info page and code comments
+*** TODO Some kind of automation for syncing README.org, Info page and code comments :beta:
 
 ** TODO Testing
 
-*** TODO Testing collecting line items across multiple Agenda files
+*** TODO Testing collecting line items across multiple Agenda files   :alpha:
 
-*** TODO Testing for TBLFMs generating correct sums
+*** TODO Testing for TBLFMs generating correct sums                   :alpha:
 
-*** TODO Testing for appropriate taxation columns being inferred and added, based on line item data
+*** TODO Testing for appropriate taxation columns being inferred and added, based on line item data :alpha:
 
-*** TODO Testing correct generation of invoice numbers
+*** TODO Testing correct generation of invoice numbers                :alpha:
 
-*** TODO Testing correct resolving of time blocks
+*** TODO Testing correct resolving of time blocks                     :alpha:
+
+** Other ideas for consideration
+
+*** Defining multiple tags contributing to same invoice line number
+    This could cut down on proliferation of line item entries in config, and would allow to easier
+    "refactor" what contributes to line items without having to retag tasks in file.
