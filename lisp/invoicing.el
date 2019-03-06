@@ -627,9 +627,22 @@ he table."
   (insert "TODO invoicing data"))
 
 (defun org-dblock-write:invoicing-items-copy (params)
-  "TODO"
-  ;; TODO just copy the invoicing-items table
-  (insert "TODO invoicing items copy"))
+  "Generate a verbatim copy of a block named \"invoicing-items\".
+`PARAMS' are ignored."
+  (insert "**THIS TABLE WILL BE USED AS CANONICAL**\n") ;HACK to force indentation to work, and also a reminder
+  (let ((point-before (point)))
+    (insert (string-trim-left (save-excursion
+                                (let* ((start (progn
+                                                (goto-char (point-min))
+                                                (re-search-forward (rx-to-string `(: "#+BEGIN: invoicing-items")) nil t)
+                                                (forward-line)
+                                                (point)))
+                                       (end (progn
+                                              (re-search-forward (rx-to-string `(: "#+END:")) nil t)
+                                              (forward-line -1)
+                                              (point))))
+                                  (buffer-substring-no-properties start end)))))
+    (org-indent-region point-before (point))))
 
 
 ;; template code -- TODO separate out to another file

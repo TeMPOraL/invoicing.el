@@ -74,7 +74,8 @@
    I.e. one to review headlines contributing to time. Essentially passthrough to org clocktable.
    Need to automatically pull correct time block (possibly from #+CONSTANTS: declaration?)
 
-*** TODO Actual implementation (copy/paste)
+*** DONE Actual implementation (copy/paste)                           :alpha:
+    CLOSED: [2019-03-06 Wed 22:09]
 
 *** TODO Progress indicator                                            :beta:
     This operation might take noticeable time with lots of files.
