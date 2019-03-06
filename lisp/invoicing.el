@@ -501,7 +501,7 @@ TODO document `PARAMS' or refer to dblock fun."
          (selected-tags (invoicing--get-in-context :tags))
          (all-tags-in-files)            ;TODO collect them all
          (total-time-in-files 0)        ;TODO collect it
-         (block 'thismonth) ;FIXME this needs to be in customer / seller / global defaults! and possibly queried!
+         (block (invoicing--get-in-context :block))
          (sums)
          (warnings)
          (unclassified-time))
@@ -514,13 +514,17 @@ TODO document `PARAMS' or refer to dblock fun."
         (incf total-time-in-files (nth 1 (org-clock-get-table-data (buffer-name) `(:block ,block))))
         ;; TODO make it also count time for _other_ tags, in order to warn only on other tags that have time assigned to them.
         (dolist (tag-entry selected-tags)
-          ;; XXX !!! FIXME THIS WILL GENERATE DUPLICATE TAGS, ONE SET FOR EACH FILE!!!
-          (push (append tag-entry `((:time . ,(nth 1 (org-clock-get-table-data (buffer-name) `(:tags ,(alist-get :tag tag-entry) :block ,block))))))
-                sums))))
+          ;; FIXME rewrite to make it clean
+          (let ((time (nth 1 (org-clock-get-table-data (buffer-name) `(:tags ,(alist-get :tag tag-entry) :block ,block))))
+                (sums-entry (cl-find (alist-get :tag tag-entry) sums :key (invoicing--agetter :tag) :test #'equalp)))
+            (if sums-entry
+                (incf (alist-get :time sums-entry) time)
+              (push (append tag-entry `((:time . ,time)))
+                    sums))))))
 
     (setf all-tags-in-files (cl-remove-duplicates all-tags-in-files :test #'equalp))
 
-    (let ((total-time-in-tags (reduce (-compose #'+ (invoicing--agetter :time)) sums)))
+    (let ((total-time-in-tags (cl-reduce #'+ sums :initial-value 0 :key (invoicing--agetter :time))))
       (unless (= total-time-in-tags total-time-in-files)
         (setf unclassified-time (- total-time-in-files total-time-in-tags))))
 
